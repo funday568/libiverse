@@ -1,0 +1,4 @@
+.env
+sessions.json
+backup/
+node_modules/
