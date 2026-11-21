@@ -19,15 +19,6 @@ Cara menjalankan:
 3. Halaman web ada di folder public/. data.json, server.js, dan .env tidak bisa dibuka lewat browser.
 4. Backup otomatis harian ada di folder backup/ (disimpan 14 hari). Jika data.json rusak, server berhenti dan data tidak ditimpa.
 
-Akun contoh untuk Uji Coba
-
-- Akun Admin:
-  Email: fandi@gmail.com
-  Password: admin123 (jika tidak bisa login, matikan server lalu jalankan node reset-admin.js)
-- Akun Anggota (User):
-  Email: user@libiverse.com
-  Password: user1234
-
 # 📚 Libiverse — Sistem Manajemen Perpustakaan Digital
 
 Libiverse adalah aplikasi web manajemen perpustakaan modern berbasis **Node.js** murni (tanpa framework berat) yang kini terhubung langsung dengan basis data relasional **MySQL**.
