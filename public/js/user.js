@@ -7,8 +7,27 @@ function userNav(on) {
   return `<nav class="top grad"><b class="logo">📚 Libiverse</b><div class="links">${a("home", "Beranda")}${a("catalog", "Katalog")}${a("wishlist", "❤️ Daftar Impian" + (wl().length ? ` (${wl().length})` : ""))}${a("borrowing", "Peminjaman")}${a("help", "💬 Tanya Pustakawan" + (unreadThreads() ? ` <span class="pill">${unreadThreads()}</span>` : ""))}${a("profile", "👤 " + esc(me.name))}${bellHTML()}<a onclick="logout()">Keluar</a></div></nav>`;
 }
 
-// Halaman katalog: daftar buku yang bisa dicari (judul/penulis/ISBN) dan difilter kategori.
-function catalog() {
+let userCatPage = 1;
+let userCatPerPage = 12; // disesuaikan otomatis dengan jumlah kolom (lihat perPageFor)
+
+// Saat ukuran jendela berubah (jumlah kolom berubah), hitung ulang jumlah per halaman.
+let _rzCat;
+addEventListener("resize", () => {
+  clearTimeout(_rzCat);
+  _rzCat = setTimeout(() => {
+    if ($("#q") && $(".books") && perPageFor(".books") !== userCatPerPage) catalog();
+  }, 200);
+});
+
+function changeUserCatPage(p) {
+  userCatPage = p;
+  catalog();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// Halaman katalog: daftar buku yang bisa dicari (judul/penulis/ISBN) dan difilter kategori dengan paginasi.
+// fit=false dipakai saat render ulang untuk menyesuaikan jumlah per halaman (mencegah render berulang).
+function catalog(fit = true) {
   const q = (window._q || "").toLowerCase(),
     c = window._c || "",
     s = window._s || "";
@@ -17,7 +36,6 @@ function catalog() {
       (!c || b.cat === c) &&
       (b.title + b.author + b.isbn).toLowerCase().includes(q),
   );
-  // Urutkan berdasarkan rating (rekomendasi sosial dari pembaca lain).
   if (s === "rating")
     list.sort(
       (x, y) =>
@@ -30,6 +48,15 @@ function catalog() {
         ratingOf(y.id).n - ratingOf(x.id).n ||
         ratingOf(y.id).avg - ratingOf(x.id).avg,
     );
+
+  const totalPages = Math.ceil(list.length / userCatPerPage) || 1;
+  if (userCatPage > totalPages) userCatPage = 1;
+  if (userCatPage < 1) userCatPage = 1;
+  const start = (userCatPage - 1) * userCatPerPage;
+  const paged = list.slice(start, start + userCatPerPage);
+
+  const pagHTML = pagerHTML(userCatPage, totalPages, list.length, "changeUserCatPage");
+
   app.innerHTML =
     userNav("catalog") +
     `<div class="wrap">${flashHTML()}
@@ -39,7 +66,7 @@ function catalog() {
    <select id="s" style="max-width:220px"><option value="">Urutan Bawaan</option><option value="rating" ${s === "rating" ? "selected" : ""}>⭐ Rating Tertinggi</option><option value="ulasan" ${s === "ulasan" ? "selected" : ""}>💬 Paling Banyak Diulas</option></select></div>
    <h3 style="margin-bottom:12px">Semua Buku <span class="tag">${list.length} buku</span></h3>
    <div class="books">${
-     list
+     paged
        .map(
          (
            b,
@@ -48,23 +75,32 @@ function catalog() {
      <div class="acts"><button class="btn sm out" onclick="detail(${b.id})">👁 Lihat Detail</button><button class="btn sm" ${b.stock < 1 ? "disabled" : ""} onclick="quickBorrow(${b.id})">📥 Pinjam</button></div></div></div>`,
        )
        .join("") || "<p>Tidak ada buku.</p>"
-   }</div></div>`;
-  // Pencarian langsung saat mengetik, fokus kursor dipertahankan di kotak cari.
+   }</div>${pagHTML}</div>`;
+
   $("#q").oninput = (e) => {
     window._q = e.target.value;
+    userCatPage = 1;
     catalog();
     $("#q").focus();
     $("#q").setSelectionRange(99, 99);
   };
-  // Filter berdasarkan kategori yang dipilih.
   $("#c").onchange = (e) => {
     window._c = e.target.value;
+    userCatPage = 1;
     catalog();
   };
   $("#s").onchange = (e) => {
     window._s = e.target.value;
+    userCatPage = 1;
     catalog();
   };
+  // Penuhi baris terakhir: jumlah per halaman = kelipatan jumlah kolom yang tampil.
+  const per = perPageFor(".books");
+  if (fit && per !== userCatPerPage) {
+    userCatPage = Math.floor(start / per) + 1; // tetap di sekitar buku yang sedang dilihat
+    userCatPerPage = per;
+    catalog(false);
+  }
 }
 
 // ===== Notifikasi Peminjaman =====
@@ -753,38 +789,30 @@ function profile() {
     ? Math.round(((totalDibaca - tier.min) / (nextTier.min - tier.min)) * 100)
     : 100;
 
-  // Pola QR dekoratif yang konsisten untuk setiap kode anggota (21x21 modul)
+  // Kode QR asli (bisa dipindai) dibuat lewat library QRCode yang sudah dimuat di user.html.
+  // Dibuat di elemen sementara (tidak perlu ditempel ke DOM) lalu diambil sebagai gambar data-URI.
   const renderQR = (text) => {
-    const N = 21;
-    let h = 2166136261;
-    for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
-    const rnd = () =>
-      ((h = Math.imul(h ^ (h >>> 13), 1274126177)) >>> 0) / 4294967296;
-    const finder = (x, y, ox, oy) => {
-      const dx = x - ox,
-        dy = y - oy;
-      if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return null;
-      return (
-        dx === 0 ||
-        dy === 0 ||
-        dx === 6 ||
-        dy === 6 ||
-        (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4)
-      );
-    };
-    let rects = "";
-    for (let y = 0; y < N; y++)
-      for (let x = 0; x < N; x++) {
-        let on =
-          finder(x, y, 0, 0) ??
-          finder(x, y, N - 7, 0) ??
-          finder(x, y, 0, N - 7);
-        const nearFinder =
-          (x < 8 && y < 8) || (x > N - 9 && y < 8) || (x < 8 && y > N - 9);
-        if (on === null) on = nearFinder ? false : rnd() > 0.52;
-        if (on) rects += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
-      }
-    return `<svg viewBox="-1 -1 ${N + 2} ${N + 2}" shape-rendering="crispEdges" aria-label="Kode QR anggota ${esc(text)}" role="img"><rect x="-1" y="-1" width="${N + 2}" height="${N + 2}" fill="#fff"/><g fill="#0f0c29">${rects}</g></svg>`;
+    // Library QR gagal dimuat (misal tanpa internet): tampilkan kode teks sebagai cadangan.
+    const fallback = `<div class="libi-qr-fallback" title="Kode QR tidak dapat dimuat">${esc(text)}</div>`;
+    if (typeof QRCode === "undefined") return fallback;
+    try {
+      const holder = document.createElement("div");
+      new QRCode(holder, {
+        text,
+        width: 120,
+        height: 120,
+        colorDark: "#0f0c29",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+      const canvas = holder.querySelector("canvas");
+      const src = canvas ? canvas.toDataURL("image/png") : "";
+      return src
+        ? `<img class="libi-qr-img" src="${src}" alt="Kode QR anggota ${esc(text)}" width="120" height="120">`
+        : fallback;
+    } catch (e) {
+      return fallback;
+    }
   };
 
   app.innerHTML =
@@ -853,7 +881,7 @@ function profile() {
           <small style="color:var(--mu)">ⓘ Digunakan untuk verifikasi peminjaman</small><br><br>
 
           <label>Nomor Telepon / WhatsApp *</label>
-          <input name="phone" value="${esc(me.phone || "")}" placeholder="Contoh: 081234567890">
+          <input name="phone" type="tel" inputmode="tel" value="${esc(me.phone || "")}" placeholder="Contoh: 081234567890">
 
           <label>Alamat Lengkap *</label>
           <textarea name="address" placeholder="Alamat domisili lengkap">${esc(me.address || "")}</textarea>
@@ -887,6 +915,10 @@ function profile() {
   $("#f").onsubmit = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
+    // Cek kolom yang diubah saja; data lama yang belum rapi tidak menghalangi simpan.
+    const changed = ["email", "nim", "phone"].filter((k) => String(f[k] || "").trim() !== String(me[k] || ""));
+    const bad = cekKontak(f, changed);
+    if (bad) return fieldError(e.target, ...bad);
     if (f.password) {
       try {
         await api("/api/password", {
@@ -901,6 +933,7 @@ function profile() {
     ["name", "email", "nim", "phone", "address"].forEach(
       (k) => (me[k] = String(f[k] || "").trim()),
     );
+    if (/^08\d{8,11}$/.test(normPhone(me.phone))) me.phone = normPhone(me.phone); // simpan bentuk baku 08xxx
     const err = await save();
     flash = err ? "!" + err : "Profil berhasil diperbarui";
     profile();

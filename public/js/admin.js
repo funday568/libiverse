@@ -8,27 +8,57 @@ function statusTag(l) {
     : `<span class="tag ${STATUS_CLS[l.status] ?? ""}">${l.status}</span>`;
 }
 
-// Kerangka panel admin: sidebar menu + area konten, lalu panggil halaman sesuai menu.
+// Menu samping: [kunci, ikon, label, fungsi badge (opsional)].
+const MENU = [
+  ["dashboard", "🏠", "Dashboard"],
+  ["books", "📘", "Buku"],
+  ["categories", "🏷", "Kategori"],
+  ["loans", "🔄", "Peminjaman"],
+  ["users", "👥", "Pengguna"],
+  ["reviews", "⭐", "Ulasan", () => reviewTodo()],
+  ["inbox", "💬", "Pesan Masuk", () => waiting()],
+];
+const VIEWS = { dashboard: aDash, books: aBooks, categories: aCats, loans: aLoans, users: aUsers, reviews: aReviews, inbox: aInbox };
+
+// Ciutkan / lebarkan sidebar (tanpa argumen = bolak-balik).
+function toggleSidebar(force) {
+  const c = $("#adminContainer"), btn = $(".side-toggle-btn");
+  if (!c) return;
+  const off = c.classList.toggle("sidebar-collapsed", force);
+  btn.title = off ? "Perlebar menu" : "Kecilkan menu";
+  btn.setAttribute("aria-expanded", !off);
+}
+
+// Klik menu: Buku langsung meminimalkan sidebar, lalu pindah halaman.
+function menuGo(k) {
+  if (k === "books") toggleSidebar(true);
+  go("admin/" + k);
+}
+
+// Kerangka admin dibuat SEKALI. Pindah menu / refresh otomatis hanya memperbarui
+// menu aktif, badge, dan isi halaman, jadi sidebar tidak berkedip dan animasinya mulus.
 function adminPage(r) {
   const sub = r.split("/")[1] || "dashboard";
-  const L = (k, t) =>
-    `<a class="${sub === k ? "on" : ""}" onclick="go('admin/${k}')">${t}</a>`;
-  app.innerHTML = `<div class="admin"><aside class="side"><div class="logo" style="color:#fff;margin-bottom:20px">📚 Libiverse</div>
-    ${L("dashboard", "🏠 Dashboard")}${L("books", "📘 Buku")}${L("categories", "🏷 Kategori")}${L("loans", "🔄 Peminjaman")}${L("users", "👥 Pengguna")}${L("reviews", "⭐ Ulasan" + (reviewTodo() ? ` <span class="pill">${reviewTodo()}</span>` : ""))}${L("inbox", "💬 Pesan Masuk" + (waiting() ? ` <span class="pill">${waiting()}</span>` : ""))}
-    <a onclick="go('home')">🌐 Lihat Situs</a>
-    <div class="who">👤 ${esc(me.name)}<br><small>Administrator</small></div><button class="btn red" onclick="logout()">⏻ Keluar</button></aside>
-    <main class="main" id="main"></main></div>`;
-  (
-    ({
-      dashboard: aDash,
-      books: aBooks,
-      categories: aCats,
-      loans: aLoans,
-      users: aUsers,
-      reviews: aReviews,
-      inbox: aInbox,
-    })[sub] || aDash
-  )();
+  if (!$("#adminContainer")) {
+    app.innerHTML = `<div class="admin" id="adminContainer"><aside class="side">
+      <div class="side-header"><div class="logo logo-text" style="color:#fff;margin:0">📚 Libiverse</div>
+        <button class="side-toggle-btn" type="button" onclick="toggleSidebar()" aria-label="Kecilkan atau perlebar menu">☰</button></div>
+      ${MENU.map(([k, i, t]) => `<a data-k="${k}" title="${t}" onclick="menuGo('${k}')"><span class="ic">${i}</span><span class="menu-text">${t}</span><span class="pill" hidden></span></a>`).join("")}
+      <a title="Lihat Situs" onclick="go('home')"><span class="ic">🌐</span><span class="menu-text">Lihat Situs</span></a>
+      <div class="who">👤 ${esc(me.name)}<br><small>Administrator</small></div>
+      <button class="btn red logout-btn" title="Keluar" onclick="logout()"><span class="ic">⏻</span><span class="menu-text">Keluar</span></button></aside>
+      <main class="main" id="main"></main></div>`;
+    window._side = null;
+  }
+  // Sidebar menciut otomatis hanya saat berpindah KE menu Buku (dan melebar saat keluar darinya).
+  if (window._side !== sub) toggleSidebar(sub === "books");
+  window._side = sub;
+  MENU.forEach(([k, , , n]) => {
+    const a = $(`.side a[data-k="${k}"]`), count = n ? n() : 0, pill = a.querySelector(".pill");
+    a.classList.toggle("on", k === sub);
+    pill.textContent = count; pill.hidden = !count;
+  });
+  (VIEWS[sub] || aDash)();
 }
 
 // Dashboard: kartu statistik dan grafik batang peminjaman per bulan tahun ini.
@@ -112,6 +142,16 @@ function aDash() {
   ];
 
   if (window._loanChart) window._loanChart.destroy();
+  window._loanChart = null;
+
+  // Chart.js dimuat dari CDN. Kalau gagal (internet mati, diblokir, dll.),
+  // jangan sampai seluruh panel admin ikut error — cukup tampilkan pesan di area grafik.
+  if (typeof Chart === "undefined") {
+    const box = document.getElementById("ch").parentElement;
+    box.style.height = "auto";
+    box.innerHTML = `<div class="alert err" style="margin:0">⚠️ Grafik tidak dapat ditampilkan karena library Chart.js gagal dimuat (periksa koneksi internet). Fitur lain tetap bisa digunakan.</div>`;
+    return;
+  }
 
   const ctx = document.getElementById("ch").getContext("2d");
   const grad = ctx.createLinearGradient(0, 0, 0, 240);
@@ -172,30 +212,23 @@ function aDash() {
 }
 
 // Manajemen buku: tabel buku + pencarian judul/penulis/ISBN.
+// Saat mengetik hanya isi tabel yang diganti (kotak cari tidak ikut digambar ulang).
 function aBooks() {
-  const q = (window._bq || "").toLowerCase();
-  const list = db.books.filter((b) =>
-    (b.title + b.author + b.isbn).toLowerCase().includes(q),
-  );
-  $("#main").innerHTML =
-    `${flashHTML()}<div class="banner grad"><div><h2>📘 Manajemen Buku</h2><p>Kelola koleksi buku Anda</p></div><button class="btn out" onclick="bookForm()">+ Tambah Buku Baru</button></div>
-  <div class="row"><input id="bq" placeholder="Cari berdasarkan judul, penulis, atau ISBN" value="${esc(window._bq || "")}"></div>
-  <table><tr><th>Sampul</th><th>Judul</th><th>Penulis</th><th>Kategori</th><th>Tahun</th><th>Stok</th><th>Rating</th><th>Aksi</th></tr>
-  ${list
-    .map(
-      (
-        b,
-      ) => `<tr><td><div class="book" style="width:40px"><div class="cv" style="height:54px;font-size:8px;${b.img ? `background-image:url('${b.img}')` : `background:${colors[b.id % colors.length]}`}"></div></div></td>
+  const rows = () => {
+    const q = (window._bq || "").toLowerCase();
+    return db.books
+      .filter((b) => (b.title + b.author + b.isbn).toLowerCase().includes(q))
+      .map((b) => `<tr><td><div class="book" style="width:40px"><div class="cv" style="height:54px;font-size:8px;${b.img ? `background-image:url('${b.img}')` : `background:${colors[b.id % colors.length]}`}"></div></div></td>
    <td><b>${esc(b.title)}</b><br><small>${esc(b.isbn)}</small></td><td>${esc(b.author)}</td><td><span class="tag">${esc(b.cat)}</span></td><td>${b.year}</td><td><span class="tag ok">${b.stock} tersedia</span></td><td>${ratingBadge(b.id)}</td>
-   <td><button class="btn sm" onclick="bookForm(${b.id})">✏️</button> <button class="btn sm red" onclick="delBook(${b.id})">🗑</button></td></tr>`,
-    )
-    .join("")}</table>`;
-  // Pencarian langsung saat mengetik.
+   <td><button class="btn sm" onclick="bookForm(${b.id})">✏️</button> <button class="btn sm red" onclick="delBook(${b.id})">🗑</button></td></tr>`)
+      .join("") || `<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--mu)">Tidak ada buku yang cocok.</td></tr>`;
+  };
+  $("#main").innerHTML = `${flashHTML()}<div class="banner grad"><div><h2>📘 Manajemen Buku</h2><p>Kelola koleksi buku Anda</p></div><button class="btn out" onclick="bookForm()">+ Tambah Buku Baru</button></div>
+  <div class="row"><input id="bq" placeholder="Cari berdasarkan judul, penulis, atau ISBN" value="${esc(window._bq || "")}"></div>
+  <table><thead><tr><th>Sampul</th><th>Judul</th><th>Penulis</th><th>Kategori</th><th>Tahun</th><th>Stok</th><th>Rating</th><th>Aksi</th></tr></thead><tbody id="brows">${rows()}</tbody></table>`;
   $("#bq").oninput = (e) => {
     window._bq = e.target.value;
-    aBooks();
-    $("#bq").focus();
-    $("#bq").setSelectionRange(999, 999);
+    $("#brows").innerHTML = rows();
   };
 }
 

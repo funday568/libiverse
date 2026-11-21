@@ -70,16 +70,27 @@ async function save() {
 }
 
 // Titik awal setiap halaman: muat data dulu, lalu tampilkan halaman (render).
+// Error server dan error tampilan dibedakan, supaya pesan "Server tidak berjalan"
+// tidak muncul padahal masalahnya ada di JavaScript halaman.
 function boot() {
-  loadState()
-    .then(() => {
+  loadState().then(
+    () => {
       me = currentUser();
-      render();
-    })
-    .catch(() => {
+      try {
+        render();
+      } catch (e) {
+        console.error("Gagal menampilkan halaman:", e);
+        document.body.innerHTML = `<p style='padding:30px'>Terjadi kesalahan saat menampilkan halaman.<br>
+          <small style="color:#b91c1c">Detail: ${esc((e && e.message) || String(e))}</small><br><br>
+          Coba muat ulang halaman (Ctrl+F5). Detail lengkap ada di Console (F12).</p>`;
+      }
+    },
+    (e) => {
+      console.error("Gagal memuat data dari server:", e);
       document.body.innerHTML =
         "<p style='padding:30px'>Server tidak berjalan. Jalankan <b>node server.js</b> lalu buka http://localhost:3000</p>";
-    });
+    },
+  );
 }
 
 // Pesan notifikasi antar halaman
@@ -147,6 +158,84 @@ const flashHTML = () => {
 
 // Tutup jendela pop-up (modal).
 const closeModal = () => ($("#modal").innerHTML = "");
+
+// ===== Validasi data diri (daftar & profil). Server tetap memeriksa ulang. =====
+// No HP: buang spasi/tanda, +62/62 → 0. Valid: 08xxxxxxxx (10-13 digit).
+const normPhone = (p) =>
+  String(p ?? "").replace(/[\s\-().]/g, "").replace(/^\+?62/, "0");
+
+// Cek kolom (default: email, NIM, No HP). Hasil: [nama kolom, pesan] untuk kolom pertama yang salah, atau null.
+const KONTAK = {
+  email: [(v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim()), "Format email tidak valid, contoh: nama@email.com"],
+  nim: [(v) => /^[A-Za-z0-9]{5,20}$/.test(v.trim()), "NIM harus 5-20 huruf/angka"],
+  phone: [(v) => /^08\d{8,11}$/.test(normPhone(v)), "Nomor HP tidak valid. Gunakan format 08xxxxxxxxxx (10-13 digit)"],
+};
+function cekKontak(f, keys = Object.keys(KONTAK)) {
+  const k = keys.find((k) => !KONTAK[k][0](String(f[k] ?? "")));
+  return k ? [k, KONTAK[k][1]] : null;
+}
+
+// Tampilkan pesan error langsung di kolom form (isi form tidak hilang).
+function fieldError(form, name, msg) {
+  const el = form.elements[name];
+  if (!el) return false;
+  el.setCustomValidity(msg);
+  el.reportValidity();
+  el.addEventListener("input", () => el.setCustomValidity(""), { once: true });
+  return true;
+}
+
+// Buku per halaman = kelipatan jumlah kolom grid (minimal 12), jadi baris terakhir selalu penuh.
+// Contoh: 7 kolom → 14, 6 → 12, 5 → 15, 4 → 12, 3 → 12, 2 → 12.
+function perPageFor(sel, min = 12) {
+  const g = document.querySelector(sel);
+  const cols = g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0;
+  return cols ? cols * Math.ceil(min / cols) : min;
+}
+
+// ===== Paginasi bersama (beranda & katalog anggota) =====
+// Nomor halaman yang ditampilkan: halaman pertama, terakhir, dan halaman di sekitar halaman aktif.
+// Contoh (aktif 6 dari 42): 1 … 4 5 6 7 8 … 42
+function pageNumbers(cur, total) {
+  const r = window.innerWidth < 520 ? 1 : 2; // layar HP: lebih sedikit tombol agar muat 1 baris
+  const set = new Set([1, total]);
+  for (let i = cur - r; i <= cur + r; i++) if (i >= 1 && i <= total) set.add(i);
+  const nums = [...set].sort((a, b) => a - b);
+  const out = [];
+  nums.forEach((n, i) => {
+    if (i && n - nums[i - 1] === 2) out.push(n - 1); // celah 1 halaman: tampilkan angkanya saja
+    else if (i && n - nums[i - 1] > 2) out.push("…");
+    out.push(n);
+  });
+  return out;
+}
+
+// Susun HTML paginasi. fn = nama fungsi global yang dipanggil dengan nomor halaman tujuan.
+function pagerHTML(cur, total, count, fn) {
+  if (total <= 1) return "";
+  const btn = (p, label, title, extra = "") =>
+    `<button type="button" class="pg-btn ${extra}" ${p < 1 || p > total || p === cur ? "disabled" : ""} onclick="${fn}(${p})" title="${title}">${label}</button>`;
+  return `<nav class="pagination" aria-label="Navigasi halaman">
+    <div class="pg-nums">
+      ${btn(1, "«", "Halaman pertama", "pg-edge pg-end")}
+      ${btn(cur - 1, "‹", "Sebelumnya", "pg-edge")}
+      ${pageNumbers(cur, total)
+        .map((n) =>
+          n === "…"
+            ? `<span class="pg-gap">…</span>`
+            : `<button type="button" class="pg-btn ${n === cur ? "on" : ""}" ${n === cur ? 'aria-current="page"' : ""} onclick="${fn}(${n})">${n}</button>`,
+        )
+        .join("")}
+      ${btn(cur + 1, "›", "Selanjutnya", "pg-edge")}
+      ${btn(total, "»", "Halaman terakhir", "pg-edge pg-end")}
+    </div>
+    <form class="pg-jump" onsubmit="event.preventDefault();const v=parseInt(this.p.value,10);if(v>=1&&v<=${total})${fn}(v);else{this.p.value='';this.p.focus();}">
+      <span class="page-info">Halaman <b>${cur}</b> dari <b>${total}</b> (${count} buku)</span>
+      <label>Ke halaman <input name="p" type="number" min="1" max="${total}" inputmode="numeric" placeholder="${cur}"></label>
+      <button type="submit" class="pg-btn pg-go">Buka</button>
+    </form>
+  </nav>`;
+}
 
 // Navigasi antar halaman
 // Daftar nama halaman → file HTML-nya.

@@ -612,22 +612,58 @@ function stateFor(u) {
 // Kolom profil yang boleh diubah user (tambahkan avatar).
 const PROFILE_FIELDS = ["name", "email", "nim", "phone", "address", "avatar"];
 
-// Perbarui profil; tolak jika email sudah dipakai akun lain.
+// ===== Validasi identitas (dipakai saat daftar & edit profil) =====
+// No HP Indonesia dinormalkan: spasi/tanda dibuang, +62/62 diganti 0. Valid: 08xxxxxxxx (10-13 digit).
+const normPhone = (p) =>
+  String(p ?? "").replace(/[\s\-().]/g, "").replace(/^\+?62/, "0");
+const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const NIM_OK = /^[A-Za-z0-9]{5,20}$/;
+const PHONE_OK = /^08\d{8,11}$/;
+
+// Cek format + keunikan email, NIM, dan No HP. old = data akun lama (null saat daftar).
+// Saat edit, hanya kolom yang BERUBAH yang dicek, jadi data lama yang belum rapi tidak menghalangi simpan.
+function cekIdentitas(d, old = null) {
+  const lama = old
+    ? { email: String(old.email ?? "").toLowerCase(), nim: String(old.nim ?? ""), phone: normPhone(old.phone) }
+    : {};
+  const ubah = (k) => !old || d[k] !== lama[k];
+  const dipakai = (k, f = (v) => v) =>
+    db.users.some((x) => x.id !== old?.id && f(x[k]) === d[k]);
+  if (ubah("email")) {
+    if (!EMAIL_OK.test(d.email)) return "Format email tidak valid";
+    if (dipakai("email", (v) => String(v ?? "").toLowerCase())) return "Email sudah terdaftar di akun lain";
+  }
+  if (ubah("nim")) {
+    if (!NIM_OK.test(d.nim)) return "NIM harus 5-20 huruf/angka";
+    if (dipakai("nim")) return "NIM sudah terdaftar di akun lain";
+  }
+  if (ubah("phone")) {
+    if (!PHONE_OK.test(d.phone)) return "Nomor HP tidak valid. Gunakan format 08xxxxxxxxxx (10-13 digit)";
+    if (dipakai("phone", normPhone)) return "Nomor HP sudah terdaftar di akun lain";
+  }
+  return null;
+}
+
+// Perbarui profil; tolak jika email/NIM/No HP tidak valid atau sudah dipakai akun lain.
 function updateProfile(target, data) {
-  const email = String(data.email || target.email)
-    .trim()
-    .toLowerCase();
-  if (db.users.some((x) => x.id !== target.id && x.email === email))
-    return "Email sudah dipakai akun lain";
+  const d = {
+    email: String(data.email ?? target.email ?? "").trim().toLowerCase(),
+    nim: String(data.nim ?? target.nim ?? "").trim(),
+    phone: normPhone(data.phone ?? target.phone),
+  };
+  const err = cekIdentitas(d, target);
+  if (err) return err;
+  const phoneBaru = d.phone !== normPhone(target.phone);
   PROFILE_FIELDS.forEach((k) => {
     if (data[k] !== undefined) target[k] = String(data[k]).trim();
   });
+  if (phoneBaru) target.phone = d.phone; // simpan dalam bentuk baku 08xxx
   // Wishlist (Daftar Impian): hanya id buku yang benar-benar ada, tanpa duplikat, maks 100.
   if (Array.isArray(data.wishlist))
     target.wishlist = [...new Set(data.wishlist.map(Number))]
       .filter((id) => db.books.some((b) => b.id === id))
       .slice(0, 100);
-  target.email = email;
+  target.email = d.email;
   return null;
 }
 
@@ -795,33 +831,24 @@ async function api(req, res, url) {
 
   // Daftar akun baru: validasi nama, email, NIM, password, lalu simpan ke database.
   if (url === "/api/register") {
-    const email = String(body.email || "")
-        .trim()
-        .toLowerCase(),
-      name = String(body.name || "").trim();
-    if (!name || !/^\S+@\S+\.\S+$/.test(email))
-      return send(res, 400, {
-        error: "Nama dan email wajib diisi dengan benar",
-      });
-    if (!/^[A-Za-z0-9]{5,20}$/.test(body.nim || ""))
-      return send(res, 400, { error: "NIM harus 5-20 huruf/angka" });
+    const name = String(body.name || "").trim();
+    const d = {
+      email: String(body.email || "").trim().toLowerCase(),
+      nim: String(body.nim || "").trim(),
+      phone: normPhone(body.phone),
+    };
+    if (!name) return send(res, 400, { error: "Nama wajib diisi" });
+    const err = cekIdentitas(d);
+    if (err) return send(res, 400, { error: err });
     if (String(body.password || "").length < 8)
       return send(res, 400, { error: "Password minimal 8 karakter" });
-    if (db.users.some((x) => x.email === email))
-      return send(res, 400, { error: "Email sudah terdaftar" });
-    if (db.users.some((x) => x.nim === body.nim))
-      return send(res, 400, { error: "NIM sudah terdaftar" });
-
-    // SIMPAN KE MEMORI & MYSQL: phone dan address sekarang diambil dari body
     db.users.push({
       id: Date.now(),
       name,
-      nim: body.nim,
-      email,
+      ...d,
       passwordHash: hashPassword(body.password),
       role: "user",
-      phone: String(body.phone || "").trim(), // <-- AMBIL NO HP
-      address: String(body.address || "").trim(), // <-- AMBIL ALAMAT
+      address: String(body.address || "").trim(),
       active: true,
       created: today(),
     });
