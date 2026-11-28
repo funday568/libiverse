@@ -336,7 +336,7 @@ async function delCat(i) {
 // Menampilkan durasi hari yang diminta anggota agar pustakawan tahu berapa hari buku dipinjam.
 function aLoans() {
   $("#main").innerHTML =
-    `${flashHTML()}<div class="banner grad"><div><h2>🔄 Peminjaman</h2><p>Setujui, tolak dan proses pengembalian buku (denda ${rp(DENDA_PER_HARI)}/hari, batas pengambilan ${db.pickupDays} hari setelah disetujui)</p></div></div>
+    `${flashHTML()}<div class="banner grad"><div><h2>🔄 Peminjaman</h2><p>Konfirmasi buku diambil, batalkan booking, dan proses pengembalian (denda ${rp(DENDA_PER_HARI)}/hari, batas pengambilan ${db.pickupDays} hari setelah booking)</p></div></div>
   <table><tr><th>Peminjam</th><th>Buku</th><th>Durasi</th><th>Pinjam</th><th>Kembali / Batas Ambil</th><th>Status</th><th>Denda</th><th>Aksi</th></tr>
   ${
     db.loans

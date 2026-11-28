@@ -28,7 +28,7 @@ try {
       process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
   }
 } catch {}
-const BATAS_AMBIL_HARI = 2; // batas pengambilan buku setelah booking disetujui
+const BATAS_AMBIL_HARI = 2; // batas pengambilan buku setelah booking dibuat
 
 // ---------- Hashing password ----------
 // Ubah password jadi hash scrypt + salt acak agar tidak disimpan dalam bentuk asli.
@@ -222,7 +222,7 @@ function gantiPasswordAdminBawaan() {
   }
 }
 
-// Booking yang disetujui tapi tidak diambil sampai batas waktu → kedaluwarsa, stok dikembalikan.
+// Booking yang tidak diambil sampai batas waktu → kedaluwarsa, stok dikembalikan.
 function expireBookings() {
   let changed = false;
   db.loans.forEach((l) => {
@@ -744,6 +744,8 @@ function applyChanges(u, body) {
       if (mine.some((x) => x.status === "Dipinjam" && x.due < today()))
         return "Kembalikan dulu buku yang terlambat";
       const days = Math.min(14, Math.max(1, +l.days || 7));
+      // Booking langsung aktif tanpa persetujuan admin: stok dipesan, anggota wajib mengambil sebelum batas waktu.
+      book.stock--;
       db.loans.push({
         id: Date.now() + Math.floor(Math.random() * 1000),
         userId: u.id,
@@ -751,7 +753,8 @@ function applyChanges(u, body) {
         days,
         date: today(),
         due: today(days),
-        status: "Menunggu",
+        status: "Siap Diambil",
+        pickupBy: today(BATAS_AMBIL_HARI),
       });
     }
   }

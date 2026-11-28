@@ -121,7 +121,7 @@ function notifications() {
         key: l.id + ":ok",
         icon: "✅",
         cls: "ok",
-        text: `Peminjaman <b>${t}</b> disetujui admin. Silakan ambil di perpustakaan${l.pickupBy ? " sebelum <b>" + l.pickupBy + "</b>" : ""}.`,
+        text: `Peminjaman <b>${t}</b> berhasil dibooking. Silakan ambil di perpustakaan${l.pickupBy ? " sebelum <b>" + l.pickupBy + "</b>" : ""}.`,
       });
       if (l.pickupBy && dayDiff(l.pickupBy) <= 1)
         out.push({
@@ -345,7 +345,7 @@ function borrowWishlist() {
    <h3>📥 Pinjam dari Daftar Impian</h3><p class="txt">Pilih buku yang ingin diajukan:</p><br>
    ${list.map((b) => `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="wb" value="${b.id}" checked style="width:auto"> <span><b>${esc(b.title)}</b> — ${esc(b.author)}</span></label>`).join("")}<br>
    <label>Lama pinjam (hari)</label><input id="days" type="number" min="1" max="14" value="7">
-   <small style="color:var(--mu)">ⓘ Setelah disetujui admin, buku wajib diambil dalam ${db.pickupDays} hari.</small><br><br>
+   <small style="color:var(--mu)">ⓘ Buku langsung dibooking, wajib diambil dalam ${db.pickupDays} hari.</small><br><br>
    <button class="btn" onclick="submitWishBorrow()">📥 Ajukan Peminjaman</button> <button class="btn out" onclick="closeModal()">Batal</button></div></div>`;
 }
 
@@ -375,7 +375,7 @@ async function submitWishBorrow() {
   closeModal();
   flash = err
     ? "!" + err
-    : `${ids.length} pengajuan peminjaman terkirim. Tunggu persetujuan admin.`;
+    : `${ids.length} buku berhasil dibooking. Ambil di perpustakaan sebelum batas waktu.`;
   go("borrowing");
 }
 
@@ -473,7 +473,7 @@ function detail(id, msg) {
    <h4>📚 Rekomendasi Buku Terkait</h4>
    ${rel.length ? `<div class="rel">${rel.map((x) => `<a class="relb" onclick="detail(${x.id})"><div class="cv" ${cover(x)}>${x.img ? "" : esc(x.title)}</div><small><b>${esc(x.title)}</b><br>${esc(x.author)}</small>${ratingBadge(x.id)}</a>`).join("")}</div>` : `<p class="txt"><i>Belum ada buku terkait.</i></p>`}<br>
    <label>Lama pinjam (hari)</label><input id="days" type="number" min="1" max="14" value="7">
-   <small style="color:var(--mu)">ⓘ Setelah disetujui admin, buku wajib diambil dalam ${db.pickupDays} hari. Jika tidak, booking otomatis kedaluwarsa.</small><br><br>
+   <small style="color:var(--mu)">ⓘ Buku langsung dibooking, wajib diambil dalam ${db.pickupDays} hari. Jika tidak, booking otomatis kedaluwarsa.</small><br><br>
    <button class="btn" ${b.stock < 1 ? "disabled" : ""} onclick="borrow(${b.id})">📥 Pinjam Buku</button> <button class="btn out" onclick="toggleWish(${b.id})">${inWl(b.id) ? "💔 Hapus dari Impian" : "❤️ Simpan"}</button> <button class="btn out" onclick="askLibrarian('buku', ${b.id})">💬 Tanya Pustakawan</button> <button class="btn out" onclick="closeModal()">Tutup</button></div></div>`;
 }
 
@@ -485,11 +485,11 @@ function quickBorrow(id) {
     `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="card">
    <h3>📥 Pinjam Buku</h3><p class="txt"><b>${esc(b.title)}</b> — ${esc(b.author)}<br>Stok tersedia: ${b.stock}</p><br>
    <label>Lama pinjam (hari)</label><input id="days" type="number" min="1" max="14" value="7">
-   <small style="color:var(--mu)">ⓘ Setelah disetujui admin, buku wajib diambil dalam ${db.pickupDays} hari.</small><br><br>
+   <small style="color:var(--mu)">ⓘ Buku langsung dibooking, wajib diambil dalam ${db.pickupDays} hari.</small><br><br>
    <button class="btn" onclick="borrow(${b.id})">📥 Ajukan Peminjaman</button> <button class="btn out" onclick="closeModal()">Batal</button></div></div>`;
 }
 
-// Ajukan peminjaman: wajib lengkapi profil dulu, lama pinjam 1–14 hari, status awal "Menunggu".
+// Booking peminjaman: wajib lengkapi profil dulu, lama pinjam 1–14 hari, status awal "Siap Diambil".
 async function borrow(id) {
   if (!me.nim || !me.phone || !me.address) {
     closeModal();
@@ -510,7 +510,7 @@ async function borrow(id) {
   closeModal();
   flash = err
     ? "!" + err
-    : "Pengajuan peminjaman terkirim. Tunggu persetujuan admin.";
+    : "Booking berhasil. Ambil bukunya di perpustakaan sebelum batas waktu.";
   go("borrowing");
 }
 
@@ -586,7 +586,7 @@ const FAQ = () => [
   ],
   [
     "Kapan buku harus diambil?",
-    `Setelah peminjaman disetujui admin, buku wajib diambil dalam ${db.pickupDays} hari. Jika tidak, booking otomatis kedaluwarsa.`,
+    `Setelah booking dibuat, buku wajib diambil dalam ${db.pickupDays} hari. Jika tidak, booking otomatis kedaluwarsa.`,
   ],
   [
     "Kenapa saya tidak bisa meminjam?",
